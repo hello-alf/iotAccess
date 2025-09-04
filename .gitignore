@@ -1,0 +1,17 @@
+node_modules/
+.DS_Store
+.env
+.aws-sam/
+.vscode/
+.idea/
+.serverless/
+dist/
+coverage/
+build/
+npm-debug.log
+yarn-error.log
+.env.local
+.env.*.local
+!.env.example
+.sass-cache
+.cache/
