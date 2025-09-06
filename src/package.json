@@ -9,9 +9,10 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
     "@aws-sdk/client-apigatewaymanagementapi": "^3.879.0",
-    "@aws-sdk/client-dynamodb": "^3.879.0"
+    "@aws-sdk/client-dynamodb": "^3.879.0",
+    "@aws-sdk/client-cognito-identity-provider": "^3"
   }
 }

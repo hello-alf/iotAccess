@@ -1,0 +1,10 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "iotAccess"
+resolve_s3 = true
+s3_prefix = "iotAccess"
+region = "us-east-2"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "StageName=\"dev\""
+image_repositories = []

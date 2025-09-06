@@ -19,7 +19,6 @@ Parameters:
     Default: dev
 
 Resources:
-  # --- Tabla para guardar connectionId ---
   ConnectionsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -30,14 +29,57 @@ Resources:
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
-      TableName: !Sub '${AWS::StackName}-connections'
+      TableName: !Sub ${AWS::StackName}-connections
 
-  # --- Lambdas ---
+  AccessEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      TableName: !Sub ${AWS::StackName}-events
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${AWS::StackName}-users
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      ClientName: web
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+      PreventUserExistenceErrors: ENABLED
+
   ConnectFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
-      Handler: handlers.connect
+      Handler: handlersSocket.connect
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ConnectionsTable
@@ -46,7 +88,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
-      Handler: handlers.disconnect
+      Handler: handlersSocket.disconnect
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ConnectionsTable
@@ -55,103 +97,108 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
-      Handler: handlers.defaultRoute
+      Handler: handlersSocket.defaultRoute
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ConnectionsTable
-        # Permiso para enviar mensajes vía Management API (@connections)
         - Statement:
             Effect: Allow
             Action:
               - execute-api:ManageConnections
-            # Permite cualquier stage de esta API
-            Resource: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*/POST/@connections/*'
+            Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*/POST/@connections/*
 
-  # --- API Gateway v2 (WebSocket) ---
   WebSocketApi:
     Type: AWS::ApiGatewayV2::Api
     Properties:
-      Name: !Sub '${AWS::StackName}-ws'
+      Name: !Sub ${AWS::StackName}-ws
       ProtocolType: WEBSOCKET
-      RouteSelectionExpression: '$request.body.action' # o '$request.body' si no envías "action"
+      RouteSelectionExpression: $request.body.action
 
-  # Integrations (Lambda proxy)
   ConnectIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref WebSocketApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub >-
-        arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConnectFunction.Arn}/invocations
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConnectFunction.Arn}/invocations
 
   DisconnectIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref WebSocketApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub >-
-        arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DisconnectFunction.Arn}/invocations
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DisconnectFunction.Arn}/invocations
 
   DefaultIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref WebSocketApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub >-
-        arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DefaultFunction.Arn}/invocations
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DefaultFunction.Arn}/invocations
+
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: handlerPublicRest.handler
+      Environment:
+        Variables:
+          CLIENT_ID: !Ref CognitoUserPoolClient
+      Events:
+        PostLogin:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /auth/login
+            Method: POST
+            Auth:
+              Authorizer: NONE
 
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
       StageName: !Ref StageName
       CorsConfiguration:
-        AllowMethods: [GET, POST, OPTIONS]
-        AllowHeaders: [Authorization, Content-Type]
-        AllowOrigins: ['*']
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Authorization
+          - Content-Type
+        AllowOrigins:
+          - '*'
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            JwtConfiguration:
+              issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}
+              audience:
+                - !Ref CognitoUserPoolClient
+            IdentitySource:
+              - $request.header.Authorization
 
-  RestFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: src/
-      Handler: rest.ping
-      Policies: []  # agrega las que necesites (DynamoDB, etc.)
-      Events:
-        GetPing:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /api/ping
-            Method: GET
-        PostAccess:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /api/access/request
-            Method: POST
-
-  # Rutas especiales
   ConnectRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref WebSocketApi
       RouteKey: $connect
-      Target: !Sub 'integrations/${ConnectIntegration}'
+      Target: !Sub integrations/${ConnectIntegration}
 
   DisconnectRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref WebSocketApi
       RouteKey: $disconnect
-      Target: !Sub 'integrations/${DisconnectIntegration}'
+      Target: !Sub integrations/${DisconnectIntegration}
 
   DefaultRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref WebSocketApi
       RouteKey: $default
-      Target: !Sub 'integrations/${DefaultIntegration}'
+      Target: !Sub integrations/${DefaultIntegration}
 
-  # Stage con auto-deploy
   WebSocketStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
@@ -159,14 +206,13 @@ Resources:
       StageName: !Ref StageName
       AutoDeploy: true
 
-  # Permisos para que API Gateway invoque a las Lambdas (uno por ruta)
   ConnectInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ConnectFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*/$connect'
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*/$connect
 
   DisconnectInvokePermission:
     Type: AWS::Lambda::Permission
@@ -174,7 +220,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref DisconnectFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*/$disconnect'
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*/$disconnect
 
   DefaultInvokePermission:
     Type: AWS::Lambda::Permission
@@ -182,12 +228,21 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref DefaultFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*/$default'
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*/$default
 
 Outputs:
   WebSocketUrl:
     Description: URL WSS para conectarse
-    Value: !Sub 'wss://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${WebSocketStage}'
+    Value: !Sub wss://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${WebSocketStage}
   HttpApiUrl:
     Description: URL base para llamadas REST
-    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}'
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}
+  Issuer:
+    Description: URL de proveedor de identidad Cognito
+    Value: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}
+  UserPoolId:
+    Description: ID del grupo de usuarios de Cognito
+    Value: !Ref CognitoUserPool
+  UserPoolClientId:
+    Description: ID del cliente del grupo de usuarios de Cognito
+    Value: !Ref CognitoUserPoolClient
