@@ -19,6 +19,12 @@ Parameters:
     Default: dev
 
 Resources:
+  HttpApiAccessLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/http-api/${AWS::StackName}
+      RetentionInDays: 7
+
   ConnectionsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -31,11 +37,34 @@ Resources:
           KeyType: HASH
       TableName: !Sub ${AWS::StackName}-connections
 
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      TableName: !Sub ${AWS::StackName}-users
+
+  DoorConfigTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      TableName: !Sub ${AWS::StackName}-door-config
+
   AccessEventsTable:
     Type: AWS::DynamoDB::Table
     Properties:
       BillingMode: PAY_PER_REQUEST
-      TableName: !Sub ${AWS::StackName}-events
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
@@ -46,6 +75,7 @@ Resources:
           KeyType: HASH
         - AttributeName: sk
           KeyType: RANGE
+      TableName: !Sub ${AWS::StackName}-access-events
 
   CognitoUserPool:
     Type: AWS::Cognito::UserPool
@@ -153,6 +183,79 @@ Resources:
             Auth:
               Authorizer: NONE
 
+  EnrollFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: handlerEnrollRest.handler
+      Environment:
+        Variables:
+          USERS_TABLE: !Ref UsersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        EnrollNfc:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /users/{userId}/enroll
+            Method: POST
+
+  AccessFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: handlerAccessRest.handler
+      Environment:
+        Variables:
+          DOOR_CONFIG_TABLE: !Ref DoorConfigTable
+          USERS_TABLE: !Ref UsersTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref DoorConfigTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        PostAccess:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/access/request
+            Method: POST
+
+  DebugEchoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: debug.echo
+      Events:
+        Echo:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /debug
+            Method: GET
+
+  # ResolveNfcToUserFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: src/
+  #     Handler: handlerAccess.resolveNfc
+  #     Environment:
+  #       Variables:
+  #         USERS_TABLE: !Ref UsersTable
+  #     Policies:
+  #       - DynamoDBReadPolicy:
+  #           TableName: !Ref UsersTable
+  #     Events:
+  #       ResolveNfc:
+  #         Type: HttpApi
+  #         Properties:
+  #           ApiId: !Ref HttpApi
+  #           Path: /nfc/resolve-to-user
+  #           Method: GET
+
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -163,8 +266,7 @@ Resources:
           - POST
           - OPTIONS
         AllowHeaders:
-          - Authorization
-          - Content-Type
+          - '*'
         AllowOrigins:
           - '*'
       Auth:
@@ -175,8 +277,7 @@ Resources:
               issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}
               audience:
                 - !Ref CognitoUserPoolClient
-            IdentitySource:
-              - $request.header.Authorization
+            IdentitySource: $request.header.Authorization
 
   ConnectRoute:
     Type: AWS::ApiGatewayV2::Route
