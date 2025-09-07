@@ -11,8 +11,8 @@ const DOOR_CONFIG_TABLE     = process.env.DOOR_CONFIG_TABLE;
 const USERS_TABLE           = process.env.USERS_TABLE;
 const ACCESS_EVENTS_TABLE   = process.env.ACCESS_EVENTS_TABLE;
 const NFC_SECRET            = process.env.NFC_SECRET || "demo-secret";
-const RESULT_TOPIC_ALLOWED  = process.env.RESULT_TOPIC_ALLOWED || "access/allowed";
-const RESULT_TOPIC_DENIED   = process.env.RESULT_TOPIC_DENIED || "access/denied";
+const RESULT_TOPIC_ALLOWED  = "access/allowed";
+const RESULT_TOPIC_DENIED   = "access/denied";
 
 let iotData;
 
@@ -96,8 +96,8 @@ export const handler = async (event) => {
 
   const userId = msg?.userId;
   const uidHex  = msg?.uidHex;
-  const doorId  = msg?.doorId;         // opcional
-  const email   = msg?.email || null;  // si lo incluyes desde el emisor
+  const doorId  = msg?.doorId;
+  const email   = msg?.email || null;
 
   const ctx = { userId, uidHex, doorId, email, nfcHash: uidHex ? nfcHash(uidHex) : null };
 
