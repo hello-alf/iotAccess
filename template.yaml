@@ -221,6 +221,8 @@ Resources:
           DOOR_CONFIG_TABLE: !Ref DoorConfigTable
           USERS_TABLE: !Ref UsersTable
           ACCESS_EVENTS_TABLE: !Ref AccessEventsTable
+          RESULT_TOPIC_ALLOWED: !Ref IotResultAllowedTopic
+          RESULT_TOPIC_DENIED: !Ref IotResultDeniedTopic
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref DoorConfigTable
@@ -228,6 +230,14 @@ Resources:
             TableName: !Ref UsersTable
         - DynamoDBWritePolicy:
             TableName: !Ref AccessEventsTable
+        - Statement:
+            Effect: Allow
+            Action:
+              - iot:Publish
+              - iot:DescribeEndpoint
+            Resource:
+              - !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/access/*
+              - '*'
       Events:
         PostAccess:
           Type: HttpApi
@@ -240,7 +250,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
-      Handler: handlerAccessIoT.handler
+      Handler: handlerAccessMqtt.handler
       Environment:
         Variables:
           DOOR_CONFIG_TABLE: !Ref DoorConfigTable
@@ -248,7 +258,7 @@ Resources:
           ACCESS_EVENTS_TABLE: !Ref AccessEventsTable
           RESULT_TOPIC_ALLOWED: !Ref IotResultAllowedTopic
           RESULT_TOPIC_DENIED: !Ref IotResultDeniedTopic
-          NFC_SECRET: demo-secret # o usa Secrets Manager
+          NFC_SECRET: demo-secret
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref DoorConfigTable
@@ -260,10 +270,10 @@ Resources:
             Effect: Allow
             Action:
               - iot:Publish
-              - iot:DescribeEndpoint # para descubrir el endpoint data-ATS en runtime
+              - iot:DescribeEndpoint
             Resource:
-              - !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/access/* # publica en access/*
-              - '*' # DescribeEndpoint no es resource-scoped
+              - !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/access/*
+              - '*'
 
   IoTAccessRule:
     Type: AWS::IoT::TopicRule
