@@ -19,8 +19,8 @@ let iotData;
 async function iotDataClient() {
   if (iotData) return iotData;
   const iot = new IoTClient({});
-  const { endpointAddress } = await iot.send(new DescribeEndpointCommand({ endpointType: "iot:Data-ATS" }));
-  iotData = new IoTDataPlaneClient({ endpoint: `https://${endpointAddress}` });
+  const { endpointAddress } = await iot.send(new DescribeEndpointCommand({ endpointType: "iot:Data-ATS" }))
+  iotData = new IoTDataPlaneClient({ endpoint: `https://${endpointAddress}` })
   return iotData;
 }
 
