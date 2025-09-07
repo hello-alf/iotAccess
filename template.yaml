@@ -17,6 +17,15 @@ Parameters:
   StageName:
     Type: String
     Default: dev
+  IotAccessTopic:
+    Type: String
+    Default: access/door
+  IotResultAllowedTopic:
+    Type: String
+    Default: access/allowed
+  IotResultDeniedTopic:
+    Type: String
+    Default: access/denied
 
 Resources:
   HttpApiAccessLogs:
@@ -211,31 +220,83 @@ Resources:
         Variables:
           DOOR_CONFIG_TABLE: !Ref DoorConfigTable
           USERS_TABLE: !Ref UsersTable
+          ACCESS_EVENTS_TABLE: !Ref AccessEventsTable
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref DoorConfigTable
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
+        - DynamoDBWritePolicy:
+            TableName: !Ref AccessEventsTable
       Events:
         PostAccess:
           Type: HttpApi
           Properties:
             ApiId: !Ref HttpApi
-            Path: /api/access/request
+            Path: /access/request
             Method: POST
 
-  DebugEchoFunction:
+  AccessIoTFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
-      Handler: debug.echo
-      Events:
-        Echo:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /debug
-            Method: GET
+      Handler: handlerAccessIoT.handler
+      Environment:
+        Variables:
+          DOOR_CONFIG_TABLE: !Ref DoorConfigTable
+          USERS_TABLE: !Ref UsersTable
+          ACCESS_EVENTS_TABLE: !Ref AccessEventsTable
+          RESULT_TOPIC_ALLOWED: !Ref IotResultAllowedTopic
+          RESULT_TOPIC_DENIED: !Ref IotResultDeniedTopic
+          NFC_SECRET: demo-secret # o usa Secrets Manager
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref DoorConfigTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBWritePolicy:
+            TableName: !Ref AccessEventsTable
+        - Statement:
+            Effect: Allow
+            Action:
+              - iot:Publish
+              - iot:DescribeEndpoint # para descubrir el endpoint data-ATS en runtime
+            Resource:
+              - !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/access/* # publica en access/*
+              - '*' # DescribeEndpoint no es resource-scoped
+
+  IoTAccessRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      RuleName: access_rule
+      TopicRulePayload:
+        AwsIotSqlVersion: '2016-03-23'
+        Sql: !Sub SELECT * FROM '${IotAccessTopic}'
+        RuleDisabled: false
+        Actions:
+          - Lambda:
+              FunctionArn: !GetAtt AccessIoTFunction.Arn
+
+  AccessFromIotInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref AccessIoTFunction
+      Principal: iot.amazonaws.com
+      SourceArn: !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:rule/access_rule
+
+  # DebugEchoFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: src/
+  #     Handler: debug.echo
+  #     Events:
+  #       Echo:
+  #         Type: HttpApi
+  #         Properties:
+  #           ApiId: !Ref HttpApi
+  #           Path: /debug
+  #           Method: GET
 
   # ResolveNfcToUserFunction:
   #   Type: AWS::Serverless::Function
@@ -266,7 +327,8 @@ Resources:
           - POST
           - OPTIONS
         AllowHeaders:
-          - '*'
+          - Authorization
+          - Content-Type
         AllowOrigins:
           - '*'
       Auth:
