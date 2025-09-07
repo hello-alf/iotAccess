@@ -1,4 +1,4 @@
-import { processAccess } from "./accessCore.js";
+import { processAccess } from "../accessCore.js";
 
 export const handler = async (event) => {
   const msg = typeof event === "string" ? JSON.parse(event)

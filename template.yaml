@@ -118,7 +118,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
-      Handler: handlersSocket.connect
+      Handler: ws/handler.connect
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ConnectionsTable
@@ -127,7 +127,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
-      Handler: handlersSocket.disconnect
+      Handler: ws/handler.disconnect
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ConnectionsTable
@@ -136,7 +136,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
-      Handler: handlersSocket.defaultRoute
+      Handler: ws/handler.defaultRoute
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ConnectionsTable
@@ -178,7 +178,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
-      Handler: handlerPublicRest.handler
+      Handler: rest/handlerPublic.handler
       Environment:
         Variables:
           CLIENT_ID: !Ref CognitoUserPoolClient
@@ -196,7 +196,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
-      Handler: handlerEnrollRest.handler
+      Handler: rest/handlerEnroll.handler
       Environment:
         Variables:
           USERS_TABLE: !Ref UsersTable
@@ -215,7 +215,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
-      Handler: handlerAccessRest.handler
+      Handler: rest/handlerAccess.handler
       Environment:
         Variables:
           DOOR_CONFIG_TABLE: !Ref DoorConfigTable
@@ -250,7 +250,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
-      Handler: handlerAccessMqtt.handler
+      Handler: mqtt/handlerAccess.handler
       Environment:
         Variables:
           DOOR_CONFIG_TABLE: !Ref DoorConfigTable

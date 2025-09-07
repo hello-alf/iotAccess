@@ -1,4 +1,4 @@
-import { processAccess } from "./accessCore.js";
+import { processAccess } from "../accessCore.js";
 
 function json(statusCode, data) {
   return { statusCode, headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) };
