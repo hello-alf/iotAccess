@@ -9,7 +9,7 @@ import {
   ApiGatewayManagementApiClient,
   PostToConnectionCommand,
 } from "@aws-sdk/client-apigatewaymanagementapi";
-
+import { processAccess } from "../accessCore.js";
 const dynamo = new DynamoDBClient({});
 const CONNECTIONS_TABLE = process.env.TABLE;
 
@@ -111,21 +111,37 @@ export const defaultRoute = async (event) => {
   const me = event.requestContext.connectionId;
 
   const body = parseMessageBody(event.body);
-  const message =
-    typeof body === "object" && body !== null && "data" in body
-      ? body.data
-      : body;
+  if (body && typeof body === "object" && body.action === "access.request") {
+    const { userId, uidHex, doorId } = body;
 
-  await sendJsonToConnection(wsManagementClient, me, {
-    type: "echo",
-    data: message,
-  });
+    const result = await processAccess({
+      userId,
+      uidHex,
+      doorId,
+      origin: "ws",
+      requestId: event.requestContext?.requestId,
+      publishResult: true, // también dispara MQTT
+    });
 
-  await broadcastJson(
-    wsManagementClient,
-    { type: "msg", data: message },
-    { excludeId: me }
-  );
+    await sendJsonToConnection(wsManagementClient, me, {
+      type: "access.result",
+      doorId,
+      allowed: result.allowed,
+      reason: result.reason,
+    });
+
+    // (Opcional) informa al resto
+    // await broadcastJson(wsManagementClient, { type: "access.notice", doorId, allowed: result.allowed }, { excludeId: me });
+
+    return { statusCode: 200 };
+  }
+
+  // Fallback: echo/broadcast como ya tenías
+  const message = (body && typeof body === "object" && "data" in body)
+    ? body.data : body;
+
+  await sendJsonToConnection(wsManagementClient, me, { type: "echo", data: message });
+  await broadcastJson(wsManagementClient, { type: "msg", data: message }, { excludeId: me });
 
   return { statusCode: 200 };
 };

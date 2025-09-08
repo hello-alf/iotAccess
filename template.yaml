@@ -137,14 +137,36 @@ Resources:
     Properties:
       CodeUri: src/
       Handler: ws/handler.defaultRoute
+      Environment:
+        Variables:
+          TABLE: !Ref ConnectionsTable
+          DOOR_CONFIG_TABLE: !Ref DoorConfigTable
+          USERS_TABLE: !Ref UsersTable
+          ACCESS_EVENTS_TABLE: !Ref AccessEventsTable
+          RESULT_TOPIC_ALLOWED: !Ref IotResultAllowedTopic
+          RESULT_TOPIC_DENIED: !Ref IotResultDeniedTopic
+          NFC_SECRET: demo-secret
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ConnectionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref DoorConfigTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBWritePolicy:
+            TableName: !Ref AccessEventsTable
         - Statement:
-            Effect: Allow
-            Action:
-              - execute-api:ManageConnections
-            Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*/POST/@connections/*
+            - Effect: Allow
+              Action:
+                - execute-api:ManageConnections
+              Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*/POST/@connections/*
+            - Effect: Allow
+              Action:
+                - iot:Publish
+                - iot:DescribeEndpoint
+              Resource:
+                - !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/access/*
+                - '*'
 
   WebSocketApi:
     Type: AWS::ApiGatewayV2::Api
