@@ -233,6 +233,25 @@ Resources:
             Path: /users/{userId}/enroll
             Method: POST
 
+  ListAccessFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: rest/handlerList.handler
+      Environment:
+        Variables:
+          ACCESS_EVENTS_TABLE: !Ref AccessEventsTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AccessEventsTable
+      Events:
+        ListAll:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /access/events
+            Method: GET
+
   AccessFunction:
     Type: AWS::Serverless::Function
     Properties:
